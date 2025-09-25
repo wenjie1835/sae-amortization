@@ -146,13 +146,6 @@ These are **optional** appendix-level utilities; they are not the focus of this 
 
 ---
 
-## Citation
-
-If you use this code or build upon our results, please cite the paper:
-**“THE PRICE OF AMORTIZED INFERENCE IN SPARSE AUTOENCODERS.”** (ICLR 2026 under review).&#x20;
-
----
-
 ## License
 
 MIT (see `LICENSE` in the repository).、
