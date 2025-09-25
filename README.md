@@ -1,95 +1,158 @@
-# SAE Amortization & Interventions (Pythia-160M Layer 8)
+# THE PRICE OF AMORTIZED INFERENCE IN SPARSE AUTOENCODERS
 
-This repository contains a lightweight, **reproducible** pipeline to train/evaluate Sparse Autoencoders (SAEs) and to run **downstream interventions**:
+> **Paper abstract**
+> Polysemy has long been a major challenge in Mechanistic Interpretability (MI), with Sparse Autoencoders (SAEs) emerging as a promising solution. SAEs employ a shared encoder to map inputs to sparse codes, thereby amortizing inference costs across all instances. However, this parameter-sharing paradigm inherently conflicts with the MI community’s emphasis on instance-level optimality. We study the “price” of amortized inference by analyzing training dynamics and comparing fully-, semi-, and non-amortized inference. We find that many pathologies (dead features, splitting, absorption, density issues) are driven less by the presence of an encoder and more by the objectives and optimization dynamics. Moving beyond fully amortized inference (e.g., with semi- or non-amortized codes) alleviates several limitations and improves downstream controllability.&#x20;
 
-- **TPP (Targeted Probe Perturbation)** style latent selection and ablations
-- **GIS (Generative Intervention Scoring)** with KL-calibrated intervention strength
+---
 
-It is tailored to **EleutherAI/pythia-160m-deduped**, `resid_post`, **layer=8** by default and supports four SAE families:
-**TopK**, **Standard**, **JumpReLU**, and **Gated**.
+## Repository scope
 
-## What’s included
+This repo provides code and scripts to reproduce the **main experiments** of the paper:
 
-- Robust activation collection with architecture autodiscovery (LLaMA/Gemma, GPT‑NeoX/Pythia, GPT‑2/OPT).
-- Unified latent encoding:
-  - `amortized`: encoder forward (if available)
-  - `semi`: amortized (or ALISTA one-step) init + a few ISTA steps
-  - `unamortized`: ISTA from zero
-  - `topk_omp`: OMP-like k-sparse coding (optional baseline)
-- Gated-SAE **bugfix**: we always fold the learned **gate vector** into the decoder to obtain an **effective dictionary** for encoding/decoding and interventions.
-- Intervention **RMS-normalization of Δ** so that the multiplier **α** is comparable across SAE variants.
-- CLI helpers for latent selection (`select_latents_cli.py`) and GIS (`intervention_score.py`).
+* **§4.3 Training Dynamics** — how dead/dense latents, splitting, absorption, NMSE, and the amortization gap evolve across sparsity settings and training steps. We follow the SAEBench setup (Gemma-2-2B, layer 12) and estimate non-amortized references with ISTA (≈200 steps).&#x20;
+* **§5 Do pathologies really stem from amortized inference?** — a controlled comparison on **Pythia-160M-deduped**, layer 8, across **Standard / JumpReLU / Gated / Top-K** SAEs and **fully / semi / non-amortized** inference, with matched density and consistent evaluation metrics.&#x20;
 
-## Install
+> Note: Concept-perturbation / intervention tasks (TPP, GIS) are included only as **appendix-level** examples and minimal scripts. The core emphasis is the **training-dynamics analysis** and **§5 main comparison**.
+
+---
+
+## Installation
 
 ```bash
+# (Optional) create an environment
+python -m venv .venv
+source .venv/bin/activate
+
+# install this repo
 pip install -e .
-# or:
+# or
 pip install -r requirements.txt
 ```
 
-> Requires Python 3.10+ and a recent PyTorch build with CUDA if you use GPU.
+Python ≥3.10 and a recent PyTorch+CUDA build are recommended for GPU runs.
 
-## Quick start
+---
 
-1) **Collect activations** (AG News example):
+## Data & models
+
+* **Models**
+
+  * Gemma-2-2B (SAEBench setup) for §4.3 training-dynamics replication.&#x20;
+  * EleutherAI/**pythia-160m-deduped**, **resid\_post**, **layer=8** for §5 main results.&#x20;
+
+* **Corpora / evaluation**
+
+  * For §4.3 we mirror SAEBench: train/evaluate SAE checkpoints across sparsity regimes and steps; metrics are defined in the paper’s evaluation section/appendix.&#x20;
+  * For §5 we stream a small held-out slice to **calibrate λ** (match average density across inference modes) and compute metrics (NMSE, Dead/Dense, Splitting/Absorption, etc.).&#x20;
+
+---
+
+## Reproducing the main experiments
+
+### 1) §4.3 — Training dynamics (Gemma-2-2B, L12)
+
+This section studies how pathologies co-evolve during training and how the amortization gap (vs. per-sample optimum via ISTA) behaves. We follow the SAEBench training recipe and evaluate at multiple sparsity levels and checkpoints; see Sec. 4.3 + Appx. E/F/H for metrics and protocol.&#x20;
+
+**A. Prepare/check SAE checkpoints**
+
+* Train (or download) **Standard** and **Top-K** SAEs at **six sparsity settings** with **seven step checkpoints** each, as in the paper (Gemma-2-2B / layer 12).&#x20;
+
+**B. Run evaluation over the trajectory**
+
 ```bash
-python -m amortization_src.collect_activations --config configs/collect_agnews.yaml
+# Example: iterate over checkpoints under ckpts/{variant}/{sparsity_id}/{step}.pt
+python -m amortization_src.eval_dynamics \
+  --model_name google/gemma-2-2b \
+  --layer_index 12 \
+  --ckpt_root ckpts/gemma2b_L12 \
+  --out outputs/dynamics_gemma2b_L12.json \
+  --ista_steps 200
 ```
 
-2) **Select latents for a target class (TPP-style)**:
+This script:
+
+* Loads each checkpoint’s decoder `D` (and gate, if present).
+* Calibrates `λ` to match a target density, then computes **non-amortized** codes with **ISTA=200** as a per-sample reference.
+* Logs NMSE, Dead/Dense rates, Splitting/Absorption proxies, and an **amortization gap** estimate (objective difference) per checkpoint.
+  Interpretation aligns with Fig. 1–2 and the observations in §4.3 (e.g., sparsity often raises NMSE & dead-rate and doesn’t reliably fix dense latents; splitting/absorption act as compensatory mechanisms; lower global gap ≠ better monosemanticity).&#x20;
+
+---
+
+### 2) §5 — Main comparison across amortization modes (Pythia-160M, L8)
+
+This section compares **fully / semi / non-amortized** inference under four SAE variants on **pythia-160m-deduped / resid\_post / layer=8**, with density-matched calibration and unified metrics (see §5.1–5.3).&#x20;
+
+**A. Collect activations (cached for reuse)**
+
 ```bash
-python -m amortization_src.select_latents_cli \
-  --sae_ckpt /path/to/sae.pt \
-  --encode_mode semi \
-  --class_id 0 \
-  --n_samples 5000 \
-  --topM 100 \
-  --out outputs/latents_agnews_cls0.json
+python -m amortization_src.collect_activations \
+  --model_name EleutherAI/pythia-160m-deduped \
+  --layer_index 8 \
+  --dataset.name ag_news \
+  --dataset.split train \
+  --dataset.streaming true \
+  --dataset.num_sequences 50000 \
+  --dataset.max_seq_len 128 \
+  --output_dir outputs/pythia160m_L8
 ```
 
-3) **Run GIS with KL calibration**:
+**B. Run the §5 evaluation sweep**
+
 ```bash
-python -m amortization_src.intervention_score \
-  --sae_ckpt /path/to/sae.pt \
-  --lat_idxes 123,456,789 \
-  --kl 0.33 \
-  --encode_mode unamortized
+python -m amortization_src.eval_section5 \
+  --model_name EleutherAI/pythia-160m-deduped \
+  --layer_index 8 \
+  --ckpts ckpts/TopK/pythia160m_L8.safetensors \
+          ckpts/Gated/pythia160m_L8.safetensors \
+          ckpts/JumpRelu/pythia160m_L8.safetensors \
+          ckpts/Standard/pythia160m_L8.safetensors \
+  --encode_modes amortized semi unamortized \
+  --target_dense 0.10 \
+  --ista_steps 200 \
+  --out outputs/section5_pythia160m_L8.json
 ```
 
-## Key design choices / fixes
+What this does (mirrors §5):
 
-- **Autodetect block**: `collect_activations._get_block` tries common module paths and registers a forward hook robustly.
-- **Gated-SAE**: we compute an **effective decoder** `D_eff = D * diag(gate)` and use it **everywhere** (encoding, λ calibration, and Δ construction).
-- **Alpha calibration stability**: we RMS-normalize the per-batch Δ so α behaves similarly across models.
-- **Tokenizer**: we guarantee a valid `pad_token`. If missing, EOS is cloned as PAD.
+* Uses a **shared decoder** per checkpoint; folds **gate** into `D` for Gated SAEs; calibrates `λ` so that fully/semi/non-amortized runs have **matched average density** (fair comparison).&#x20;
+* Computes NMSE, Dead/Dense@τ, Splitting/Absorption proxies, and aggregates per variant × mode.
+* Produces summary CSV/JSON and plots comparable to Fig. 3 (Pythia-160M) in the paper.&#x20;
 
-## Project layout
+---
 
-```
-amortization_src/
-  absorption.py
-  amortization.py
-  collect_activations.py
-  encode_latents.py
-  geometry.py
-  index_checkpoints.py
-  intervention_score.py
-  metrics.py
-  probes.py
-  run_exp5.py
-  sae_io.py
-  select_latents_cli.py
-  tpp_shift.py
-  utils.py
-```
+## (Appendix) Minimal scripts for TPP / GIS
 
-## Reproducibility tips
+These are **optional** appendix-level utilities; they are not the focus of this repository.
 
-- Use `encode_mode` consistently when comparing SAE variants.
-- Use the same **latent set S** across amortization modes for apples-to-apples comparisons, then optionally report each mode’s own top‑M as a supplement.
-- Cache activations and codes (`.npy/.npz`) to make runs deterministic and fast.
+* **TPP**: trains linear probes, ranks latents by attribution, zero-ablates top-M; logs on-target drop / off-target leakage / selectivity.&#x20;
+* **GIS**: applies **KL-calibrated** generative interventions and reports an **Intervention Score** using a scorer LM.&#x20;
+
+> The paper treats these as supplementary evidence; please rely on §4.3 and §5 for the main takeaways.
+
+---
+
+## Tips & expected behavior
+
+* **Amortization modes**:
+
+  * *Fully*: encoder forward.
+  * *Semi*: amortized (or ALISTA) init + a few ISTA steps.
+  * *Non*: ISTA from zero (≈200 steps).
+    Matching density is crucial for fair comparisons (we calibrate `λ` on a held-out slice).&#x20;
+
+* **Gated SAEs**: always fold the learned **gate** into the decoder to build an **effective dictionary** for encoding and interventions; this avoids misleading scale effects when comparing modes.
+
+* **Determinism**: cache activations and codes; set seeds where applicable.
+
+---
+
+## Citation
+
+If you use this code or build upon our results, please cite the paper:
+**“THE PRICE OF AMORTIZED INFERENCE IN SPARSE AUTOENCODERS.”** (ICLR 2026 under review).&#x20;
+
+---
 
 ## License
 
-MIT
+MIT (see `LICENSE` in the repository).、
