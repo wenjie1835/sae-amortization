@@ -93,11 +93,3 @@ amortization_src/
 ## License
 
 MIT
-
-## Submit anonymously via anonymous.4open.science
-
-1. Push this repo to a **public GitHub repository** (e.g., `github.com/<org>/<repo>`).
-2. Go to https://anonymous.4open.science/anonymize and paste your GitHub URL.
-3. Provide a **word list** to anonymize (author names, emails, lab, institution, usernames, project names, etc.). One term per line.
-4. (Optional) Toggle **auto-update** so the anonymous mirror refreshes from your repo periodically.
-5. Create the anonymous repo; you will receive a link like `https://anonymous.4open.science/r/<id>/`. Use this link in your submission.
