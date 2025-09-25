@@ -1,0 +1,10 @@
+model_name: "EleutherAI/pythia-160m-deduped"
+layer_index: 8
+device: "cuda"
+dataset:
+  name: "ag_news"
+  split: "train"
+  streaming: true
+  num_sequences: 50000
+  max_seq_len: 128
+output_dir: "outputs"

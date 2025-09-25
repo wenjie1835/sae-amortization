@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amortization-src"
+version = "0.1.0"
+description = "SAE amortization & intervention evaluation (Pythia-160M layer 8)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{name="Your Name"}]
+dependencies = [
+  "numpy>=1.24",
+  "torch>=2.1",
+  "transformers>=4.40",
+  "datasets>=2.18",
+  "scikit-learn>=1.2",
+  "tqdm>=4.66",
+  "pyyaml>=6.0",
+  "pandas>=2.0"
+]
+
+[project.urls]
+homepage = "https://github.com/yourname/sae-amortization"
